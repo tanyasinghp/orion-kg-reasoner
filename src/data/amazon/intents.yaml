@@ -1,0 +1,19 @@
+intents:
+  - intent: find_products
+    num_args: 0
+    description: Find or search for products based on name, description, or criteria
+  - intent: describe_products
+    num_args: 0
+    description: Get details and properties of specific products
+  - intent: find_related_entities
+    num_args: 0
+    description: Find related categories, reviews, or users for a given entity
+  - intent: find_relations
+    num_args: 0
+    description: Find the relationship between entities
+  - intent: find_top_products
+    num_args: 0
+    description: Find top, best, or highest-rated products
+  - intent: compare_products
+    num_args: 0
+    description: Compare two or more products by their properties

@@ -1,0 +1,43 @@
+types:
+  Product: http://amazon/kg/Product
+  Category: http://amazon/kg/Category
+  Review: http://amazon/kg/Review
+  User: http://amazon/kg/User
+
+hierarchy: []
+
+relations:
+  - [Product, "belongs_to", Category, "Belongs To Category"]
+  - [Product, "has_review", Review, "Has Review"]
+  - [Review, "written_by", User, "Written By"]
+
+datatype_properties:
+  Product:
+    "Product ID": "http://amazon/kg/p_product_id"
+    "Name": "http://amazon/kg/p_name"
+    "Discounted Price": "http://amazon/kg/p_discounted_price"
+    "Actual Price": "http://amazon/kg/p_actual_price"
+    "Discount Percentage": "http://amazon/kg/p_discount_percentage"
+    "Rating": "http://amazon/kg/p_rating"
+    "Rating Count": "http://amazon/kg/p_rating_count"
+    "About Product": "http://amazon/kg/p_about_product"
+  Category:
+    "Category ID": "http://amazon/kg/p_category_id"
+    "Category Name": "http://amazon/kg/p_category_name"
+  Review:
+    "Review ID": "http://amazon/kg/p_review_id"
+    "Review Title": "http://amazon/kg/p_review_title"
+    "Review Content": "http://amazon/kg/p_review_content"
+    "Review Rating": "http://amazon/kg/p_review_rating"
+  User:
+    "User ID": "http://amazon/kg/p_user_id"
+    "User Name": "http://amazon/kg/p_user_name"
+
+object_properties:
+  "belongs_to": "http://amazon/kg/r_belongs_to"
+  "has_review": "http://amazon/kg/r_has_review"
+  "written_by": "http://amazon/kg/r_written_by"
+
+extra_properties:
+  Category:
+    "Name": "^belongs_to/p_name"

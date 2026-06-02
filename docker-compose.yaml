@@ -1,0 +1,18 @@
+services:
+  fuseki:
+    image: stain/jena-fuseki:5.3.0
+    ports:
+      - "3030:3030"
+    environment:
+      - FUSEKI_DATASET_1=amazon
+      - ADMIN_PASSWORD=admin123
+    volumes:
+      - fuseki-data:/fuseki/databases
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3030/$/ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  fuseki-data:

@@ -1,0 +1,47 @@
+- topic: "Finding products by criteria"
+  knowledge: >
+    Use 'tool_retrieve_entities' to search for products by name or description.
+    Once you have the products, use 'tool_filter_entities' with property conditions
+    like rating, price, or discount percentage to narrow results.
+
+- topic: "Getting product details and properties"
+  knowledge: >
+    Use 'tool_retrieve_entities' to find the product, then use 'tool_get_properties'
+    with the product IDs to retrieve specific properties like price, rating,
+    or discount percentage.
+
+- topic: "Finding reviews for products"
+  knowledge: >
+    First find the product using 'tool_retrieve_entities', then use
+    'tool_navigate_path' with the 'has_review' relation to find all reviews
+    associated with the product. Use 'tool_get_properties' on the reviews
+    to get review content and ratings.
+
+- topic: "Finding top-rated or best products"
+  knowledge: >
+    Use 'tool_retrieve_entities' to find products of interest, optionally filter
+    by category. Then use 'tool_select_entities' with sort criteria like rating
+    or rating_count to identify top products.
+
+- topic: "Understanding product categories"
+  knowledge: >
+    Categories form a hierarchy. Use 'tool_navigate_path' with the 'belongs_to'
+    relation to go from a product to its category. Categories can contain
+    multiple products.
+
+- topic: "Comparing products"
+  knowledge: >
+    Retrieve entities for each product using 'tool_retrieve_entities',
+    then use 'tool_get_properties' on all of them to get their properties
+    side by side for comparison.
+
+- topic: "Finding products by user reviews"
+  knowledge: >
+    To find products reviewed by a specific user, find the user first,
+    then use 'tool_navigate_path' with '^written_by' to go from user
+    to their reviews, then '^has_review' to go from reviews to products.
+
+- topic: "Counting and aggregation"
+  knowledge: >
+    If a question asks for counts (how many, number of), use the existing
+    tools to retrieve the relevant entities, then count them in your reasoning.

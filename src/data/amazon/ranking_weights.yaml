@@ -1,0 +1,5 @@
+weights:
+  type_match: 1
+  type_match_inverse_rank: 1
+  type_mismatch_inverse_rank: 1
+  name_search: 2

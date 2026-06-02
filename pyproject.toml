@@ -1,0 +1,33 @@
+[tool.poetry]
+name = "amazon-kg-reasoner"
+version = "0.1.0"
+description = "Ontology-guided KG reasoning agent for Amazon Product Reviews metadata"
+authors = []
+readme = "README.md"
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.12"
+langchain = "^0.3"
+langchain-core = "^0.3"
+langchain-ollama = "^0.2"
+pydantic = "^2.0"
+pydantic-settings = "^2.0"
+fastapi = "^0.115"
+uvicorn = "^0.34"
+httpx = "^0.28"
+PyJWT = "^2.0"
+SPARQLWrapper = "^2.0"
+rdflib = ">=6.0"
+numpy = "^2.0"
+pyyaml = "^6.0"
+networkx = ">=3.2"
+
+
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
