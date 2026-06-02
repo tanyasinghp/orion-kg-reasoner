@@ -1,6 +1,7 @@
-# Amazon KG Reasoner
+# Orion KG Reasoner
 
-Ontology-guided KG reasoning agent for Amazon Product Reviews metadata. An open-source replica of the SAP BKG Knowledge Graph Reasoner architecture, adapted for the Amazon product domain.
+Ontology-guided KG reasoning agent for Amazon Product Reviews(here) metadata. An open-source replica of the SAP BKG Knowledge Graph Reasoner architecture, adapted for the Amazon product domain.
+The base architecture of the agent is domain agnostic.
 
 ## Architecture
 
