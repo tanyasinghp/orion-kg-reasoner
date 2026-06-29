@@ -233,6 +233,36 @@ class AgentShell(cmd.Cmd):
         else:
             self.console.print("No agent context present, yet. Run or analyze a query to create an agent context.")
 
+    def do_show_ranking(self, arg: str) -> None:
+        """Show entity ranking details (features, scores, selection)."""
+        if self.context is None:
+            self.console.print("No agent context present. Run a query first.")
+            return
+
+        ranker = self.agent_session.tool_executor_blueprint.ranker
+
+        table = Table(title="Entity Ranking", show_lines=True, header_style="bold")
+        table.add_column("ID", style="cyan", no_wrap=True)
+        table.add_column("Name", style="white")
+        table.add_column("Score", justify="right", style="green")
+        table.add_column("Features", style="yellow")
+        table.add_column("Visible", justify="center")
+
+        all_entities = sorted(self.context.id_to_entity.values(), key=lambda e: e.index)
+        visible_ids = {e.id for e in self.context.entities}
+
+        ranked = sorted(all_entities, key=lambda e: ranker._calculate_entity_score(e), reverse=True)
+        for entity in ranked:
+            score = ranker._calculate_entity_score(entity)
+            features = ", ".join(f"{k}={v}" for k, v in entity.ranking_features.items()) or "—"
+            visible = "✓" if entity.id in visible_ids else "✗"
+            name = entity.name or "(no name)"
+            table.add_row(entity.id, name, f"{score:.2f}", features, visible)
+
+        self.console.print(table)
+        self.console.print(f"\nRanker weights: {ranker.weights}", style="dim")
+        self.console.print(f"Total entities in context: {len(all_entities)}, Visible to LLM: {len(self.context.entities)}", style="dim")
+
     def do_exit(self, arg: str) -> bool:
         """Exit the interactive agent session."""
         self.console.print(

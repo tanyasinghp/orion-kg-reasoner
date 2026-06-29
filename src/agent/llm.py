@@ -17,7 +17,7 @@ def get_llm() -> BaseChatModel:
         model=settings.llm.ollama.model_name,
         temperature=settings.llm.ollama.temperature,
         num_ctx=settings.llm.ollama.context_window_size,
-        num_predict=-2,
+        num_predict=-1,
     )
 
     if settings.llm.enable_caching:

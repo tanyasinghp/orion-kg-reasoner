@@ -41,7 +41,7 @@ class LargeLanguageModelProvider(StrEnum):
 
 
 class OllamaConfig(BaseModel):
-    model_name: str = Field(frozen=True, default="llama3.1")
+    model_name: str = Field(frozen=True, default="qwen2.5:7b")
     temperature: float = Field(frozen=True, default=0.0)
     context_window_size: int = Field(frozen=True, default=65536)
 

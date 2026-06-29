@@ -97,9 +97,11 @@ class AmazonEntityRetriever(EntityRetriever):
         SELECT ?uri ?name ?description ?type
         WHERE {
             VALUES ?uri { $uris }
-            OPTIONAL { ?uri <http://amazon/kg/p_name> ?name . }
+            ?uri rdf:type ?type .
+            OPTIONAL { ?uri <http://amazon/kg/p_name> ?name1 . }
+            OPTIONAL { ?uri <http://amazon/kg/p_review_title> ?name2 . }
             OPTIONAL { ?uri <http://amazon/kg/p_about_product> ?description . }
-            OPTIONAL { ?uri rdf:type ?type . }
+            BIND(COALESCE(?name1, ?name2) AS ?name)
         }
         LIMIT 1000
         """)).substitute(uris=formatted_uris)
@@ -114,7 +116,7 @@ class AmazonEntityRetriever(EntityRetriever):
                 description = binding["description"].value if "description" in binding else ""
                 entity_map[uri] = Entity(
                     uri=uri,
-                    id=self.entity_id_generator.generate_id(),
+                    index=self.entity_id_generator.fresh_id(),
                     name=name,
                     description=description,
                     types=[],
@@ -122,6 +124,8 @@ class AmazonEntityRetriever(EntityRetriever):
                     ranking_features={}
                 )
             if "type" in binding:
-                entity_map[uri].types.append(binding["type"].value)
+                type_name = self.ontology_provider.get_type_by_uri(binding["type"].value)
+                if type_name:
+                    entity_map[uri].types.append(type_name)
 
         return list(entity_map.values())

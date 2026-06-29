@@ -14,7 +14,8 @@ from agent.ontology import OntologyProvider
 from agent.query_parser import QueryParser
 from agent.util import InputTokenCounter, IdGenerator
 from tools.tool_executor import ToolExecutor, ToolExecutorBlueprint
-from trace import trace
+from trace import trace, set_collector
+from trace_event import TraceCollector
 
 
 logger = logging.getLogger(__name__)
@@ -146,7 +147,8 @@ class AgentSession:
                  after_query_parser_callback: AfterQueryParserCallback | None = None,
                  after_reasoning_step_callback: AfterReasoningStepCallback | None = None,
                  after_tool_callback: AfterToolCallback | None = None,
-                 input_token_counter: InputTokenCounter | None = None
+                 input_token_counter: InputTokenCounter | None = None,
+                 trace_collector: TraceCollector | None = None
                  ) -> None:
         """Create an agent session.
 
@@ -168,6 +170,7 @@ class AgentSession:
         self.after_query_parser_callback = after_query_parser_callback
         self.after_reasoning_step_callback = after_reasoning_step_callback
         self.after_tool_callback = after_tool_callback
+        self.trace_collector = trace_collector
         self.agent: Agent = ...
         self.context: Context = ...
         self.active_conversation: bool = False
@@ -214,19 +217,28 @@ class AgentSession:
         """
         start_time = datetime.now()
 
+        # Set trace collector for UI event capture
+        if self.trace_collector is not None:
+            set_collector(self.trace_collector)
+
         # Analyze the query to identify intents and background information relevant to the query.
         # Possibly exit early if the user asked an inappropriate question which is rejected by the LLM.
         try:
-            trace("agent_session.py", "Phase 1: Query parsing...")
+            trace("agent_session.py", "Phase 1: Query parsing...", event_type="phase", data={"phase": "query_parser", "query": query})
             query_parser_start_time = datetime.now()
             context = await self.query_parser.parse_query(query, self.input_token_counter)
             query_parser_end_time = datetime.now()
             query_parser_duration = (query_parser_end_time - query_parser_start_time).total_seconds()
-            trace("agent_session.py", f"Phase 1 done: intents={context.intents}, target_types={context.target_types}")
+            trace("agent_session.py", f"Phase 1 done: intents={context.intents}, target_types={context.target_types}", data={
+                "intents": context.intents,
+                "target_types": context.target_types,
+                "relevant_types": context.relevant_types,
+            })
 
             if self.after_query_parser_callback is not None:
                 self.after_query_parser_callback(context, query_parser_duration, self.input_token_counter.last_count)
-        except Exception:
+        except Exception as exc:
+            trace("agent_session.py", f"Phase 1 error: {exc}", event_type="error", data={"error": str(exc)})
             answer = (
                 "We cannot answer this question, the possible reason could be that the question is inappropriate "
                 "or the LLM has encountered a temporary issue. Please retry or ask a more relevant question."
@@ -262,22 +274,55 @@ class AgentSession:
         self.context.add_tool_log_group(tool_log_group)
 
         # Run the agent loop with the defined initial context as the initial agent state
-        trace("agent_session.py", "Phase 2: Starting agent reasoning loop...")
+        trace("agent_session.py", "Phase 2: Starting agent reasoning loop...", event_type="phase", data={"phase": "agent_loop"})
         tool_executor = ToolExecutor.from_blueprint(
             self.tool_executor_blueprint, self._tool_log_id_generator, self.context
         )
+        # Wrap callbacks to emit trace events for the UI
+        trace_collector = self.trace_collector
+
+        def _step_callback(response, duration, num_tokens):
+            if self.after_reasoning_step_callback:
+                self.after_reasoning_step_callback(response, duration, num_tokens)
+            if response.type == "answer":
+                trace("agent.py", f"Step: LLM returned ANSWER ({len(response.answer)} chars)", event_type="step",
+                      data={"step_response_type": "ANSWER", "duration": duration})
+            else:
+                tc = response.tool_call
+                trace("agent.py", f"Step: LLM decided TOOL_CALL '{tc.tool_name}'", event_type="tool_call",
+                      data={
+                          "tool_name": tc.tool_name,
+                          "reason": tc.reason,
+                          "intent_ids": tc.intent_ids,
+                          "args": tc.args,
+                          "duration": duration,
+                      })
+
+        def _tool_callback(tool_call, tool_output, duration):
+            if self.after_tool_callback:
+                self.after_tool_callback(tool_call, tool_output, duration)
+            n_entities = len(tool_output.entities) if tool_output else 0
+            n_relations = len(tool_output.relations) if tool_output else 0
+            trace("tool_executor.py", f"Tool '{tool_call.tool_name}' returned: {n_entities} entities, {n_relations} relations",
+                  event_type="tool_result",
+                  data={
+                      "tool_name": tool_call.tool_name,
+                      "entities_count": n_entities,
+                      "relations_count": n_relations,
+                  })
+
         self.agent = Agent(config=self.agent_config,
                            llm=self.llm,
                            ontology_provider=self.ontology_provider,
                            tool_executor=tool_executor,
                            context=self.context,
-                           after_reasoning_step_callback=self.after_reasoning_step_callback,
-                           after_tool_callback=self.after_tool_callback,
+                           after_reasoning_step_callback=_step_callback,
+                           after_tool_callback=_tool_callback,
                            input_token_counter=self.input_token_counter)
         agent_response = await self.agent.run_agent_loop(tool_log_group)
 
         # Augment answer in agent response with data from agent context
-        trace("agent_session.py", "Phase 3: Augmenting answer with entity data...")
+        trace("agent_session.py", "Phase 3: Augmenting answer with entity data...", event_type="phase", data={"phase": "augmentation"})
         answer = self._augment_answer(agent_response, self.agent.context, top_n)
 
         end_time = datetime.now()
@@ -429,9 +474,8 @@ class AgentSession:
                     links.append(selected_entity)
                     recorded_entities.add(selected_entity_id)
 
-                # TODO: Format entity name for augmented answer
-                if selected_entity.name is not None:
-                    replacement = selected_entity.name
+                # Remove the placeholder marker (entity name is already in the answer text)
+                replacement = ""
 
             # Replace ID placeholders in answer with names of resolved entities
             augmented_answer = augmented_answer.replace(resolved_answer_placeholder.text, replacement)
@@ -521,7 +565,8 @@ class AgentSession:
 
         # Search for group IDs with FULL and SAMPLE mode, e.g., <[FULL:T-1, T-2]> or <[SAMPLE: M-0]>,
         # and identify all entities these group IDs are resolved to
-        for match in re.finditer(r"<\[(FULL|SAMPLE):\s*([TE]-\d+(?:,\s*[TE]-\d+)*)\]>", answer):
+        # (Also handle LLM typos like `]}` instead of `]>` — rdflib bug workaround)
+        for match in re.finditer(r"<\[(FULL|SAMPLE):\s*([TE]-\d+(?:,\s*[TE]-\d+)*)\][>}]", answer):
             text: str = match.group(0)
             mode: str = match.group(1)
             group_ids: list[str] = re.findall(r"[TE]-\d+", match.group(2))
@@ -550,10 +595,10 @@ class AgentSession:
 
             relevant_entity_ids.update(selected_entity_ids)
 
-        # Search for single entity IDs like <(E-5)> as well and record them
-        raw_entity_id_placeholders = re.findall(r"\<\(E\-\d+\)\>", answer)
+        # Search for single entity IDs like <(E-5)> or <(E-5: Name)> and record them
+        raw_entity_id_placeholders = re.findall(r"\<\(E\-\d+(?::[^)]*)?\)\>", answer)
         for raw_entity_id_placeholder in raw_entity_id_placeholders:
-            entity_id = raw_entity_id_placeholder.strip("<()>")
+            entity_id = raw_entity_id_placeholder.strip("<()>").split(":")[0].strip()
 
             mentioned_ids.add(entity_id)
             relevant_entity_ids.add(entity_id)

@@ -10,6 +10,7 @@ from agent.ranker import Ranker
 from agent.util import IdGenerator
 from kg.client import KnowledgeGraphClient, SparqlJsonResponse
 from kg.sparql import SparqlRdfTerm
+from trace import trace
 
 
 @dataclass
@@ -299,7 +300,6 @@ class EntityRetriever(ABC):
             f'(GROUP_CONCAT(?{param} ; SEPARATOR=";;; ") as ?{param})'
             for param in param_to_path
         ])
-        group_by_params = " ".join([f"?{param}" for param in param_to_path])
 
         # Format the given entity URIs as syntactically correct SPARQL resource identifiers
         # with '<' and '>' as delimiters, e.g., <http://example.org/book/book1>.
@@ -316,13 +316,12 @@ class EntityRetriever(ABC):
             VALUES ?uri { $uris }
             $value_clauses
         }
-        GROUP BY ?uri $group_by_params
+        GROUP BY ?uri
         LIMIT $limit
         """)).substitute(
             uris=formatted_entity_uris,
             select_params=select_params,
             value_clauses=formatted_value_clauses,
-            group_by_params=group_by_params,
             limit=1000
         )
 
@@ -337,7 +336,9 @@ class EntityRetriever(ABC):
 
             # Extra properties reference entities, i.e., all values of the extra properties are entity URIs
             for property_values in properties.values():
-                additional_entity_uris.update(property_values)
+                for val in property_values:
+                    if val:  # skip empty strings
+                        additional_entity_uris.add(val)
 
         return ExtraProperties(properties=extra_properties, additional_entity_uris=list(additional_entity_uris))
 

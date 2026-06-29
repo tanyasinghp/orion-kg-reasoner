@@ -157,8 +157,7 @@ class RdfLibKnowledgeGraphClient(KnowledgeGraphClient):
                         g.add((product_uri, URIRef(f"{AMAZON_P}rating_count"), Literal(total_helpful, datatype=XSD.integer)))
 
     async def execute_sparql_query(self, query: str, **kwargs: Any) -> SparqlJsonResponse:
-        trace("rdflib_client.py", f"SPARQL SELECT ({len(query)} chars)")
-        trace("rdflib_client.py", f"  Query: {query.replace(chr(10), ' ')[:200]}")
+        trace("rdflib_client.py", f"SPARQL SELECT ({len(query)} chars)", event_type="sparql", data={"query": query[:500]})
         try:
             raw = self.graph.query(query)
             var_names = [str(v) for v in raw.vars]
@@ -184,11 +183,13 @@ class RdfLibKnowledgeGraphClient(KnowledgeGraphClient):
                 "results": {"bindings": bindings}
             })
             resp = SparqlJsonResponse.model_validate_json(json_str)
-            if resp.results:
-                trace("rdflib_client.py", f"  Result: {len(resp.results.bindings)} bindings")
+            n_bindings = len(resp.results.bindings) if resp.results else 0
+            trace("rdflib_client.py", f"  Result: {n_bindings} bindings", event_type="sparql_result",
+                  data={"bindings_count": n_bindings})
             return resp
         except Exception as exc:
-            trace("rdflib_client.py", f"  SPARQL evaluation error: {exc}")
+            trace("rdflib_client.py", f"  SPARQL evaluation error: {exc}", event_type="sparql_error",
+                  data={"error": str(exc)})
             return SparqlJsonResponse(head={"vars": []}, results={"bindings": []})
 
     async def execute_sparql_update(self, update: str) -> None:

@@ -93,7 +93,7 @@ async def validate_token(token: str) -> UserToken:
 
 async def get_current_user(authorization: str = Header(None)) -> UserToken:
     if not _oidc_enabled:
-        return UserToken(subject="local", audience="", issuer="", issued_at=datetime.now(), expires_at=datetime.now())
+        return UserToken(sub="local", aud="", iss="", iat=datetime.now(), exp=datetime.now())
     scheme, token = get_authorization_scheme_param(authorization)
     if scheme.lower() != "bearer":
         raise HTTPException(

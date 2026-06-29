@@ -170,9 +170,10 @@ class Agent:
             A response to the query contained in the agent context the agent was initialized with.
         """
         step = 0
+        consecutive_parse_errors = 0
+        max_parse_errors = 2
 
         while step <= self.config.max_steps:
-            # Instruct the agent to summarize a final answer if it is close to reaching the agent step limit
             if step == self.config.max_steps - 1:
                 self.max_prio_messages.append(
                     format_max_prio_message("YOU REACHED THE MAXIMUM NUMBER OF STEPS, NOW SUMMARIZE THE FINAL ANSWER!")
@@ -180,43 +181,45 @@ class Agent:
 
             step += 1
 
-            # Invoke the agent
             try:
-                trace("agent.py", f"Step {step}: Invoking LLM...")
+                trace("agent.py", f"Step {step}: Invoking LLM...", event_type="step", data={"step": step, "status": "invoking"})
                 invoke_agent_start_time = datetime.now()
                 response: AgentResponse = await self._invoke_agent()
                 invoke_agent_end_time = datetime.now()
                 invoke_agent_duration = (invoke_agent_end_time - invoke_agent_start_time).total_seconds()
+                consecutive_parse_errors = 0
 
                 if response.type == AgentResponseType.ANSWER:
-                    trace("agent.py", f"Step {step}: LLM returned ANSWER (no more tools needed)")
+                    trace("agent.py", f"Step {step}: LLM returned ANSWER (no more tools needed)", event_type="step",
+                          data={"step": step, "status": "answer", "duration": invoke_agent_duration})
                 else:
                     tc = response.tool_call
-                    trace("agent.py", f"Step {step}: LLM decided TOOL_CALL '{tc.tool_name}' args={tc.args}")
+                    trace("agent.py", f"Step {step}: LLM decided TOOL_CALL '{tc.tool_name}' args={tc.args}",
+                          event_type="step",
+                          data={"step": step, "status": "tool_call", "tool_name": tc.tool_name, "args": tc.args, "duration": invoke_agent_duration})
 
                 if self.after_reasoning_step_callback is not None:
                     self.after_reasoning_step_callback(
                         response, invoke_agent_duration, self.llm_input_token_counter.last_count
                     )
             except OutputParserException as e:
-                # Give feedback to the agent that it didn't produce the desired output format
+                consecutive_parse_errors += 1
+                self.context.errors.append(f"Failed to parse agent response at step {step}: {e}")
+
+                if consecutive_parse_errors >= max_parse_errors:
+                    logger.error("Agent failed to produce valid JSON %d times. Returning early.", max_parse_errors)
+                    return AgentResponse(answer="I encountered a technical issue generating a response. Please try rephrasing your question.")
+
                 self.max_prio_messages.append(
                     format_max_prio_message(
                         "Failed to parse the previous response. Now do it again and make sure the output is pure JSON!"
                     )
                 )
-
-                # Collect error in agent context
-                self.context.errors.append(f"Failed to parse agent response: {e}")
-
-                # Log error and try again
                 logger.exception("Failed to parse agent response")
                 continue
 
-            # The agent found an answer
             if response.type == AgentResponseType.ANSWER:
                 return response
-            # The agent wants to call a tool
             elif response.type == AgentResponseType.TOOL_CALL:
                 tool_call_start_time = datetime.now()
                 tool_output = await self.tool_executor.execute_tool(response.tool_call, tool_log_group)
@@ -228,7 +231,19 @@ class Agent:
                     self.after_tool_callback(response.tool_call, tool_output, tool_call_duration)
                     logger.debug("Executed after tool callback")
 
-        # The agent ran the maximum number of allowed steps without finding an answer
+                # Guardrail: after tool_retrieve_entities finds entities, tell LLM not to re-search
+                if response.tool_call.tool_name == "tool_retrieve_entities" and tool_output is not None:
+                    if tool_output.entities:
+                        found_names = [e.name or e.id for e in tool_output.entities[:3]]
+                        found_ids = [e.id for e in tool_output.entities[:3]]
+                        self.max_prio_messages.append(
+                            format_max_prio_message(
+                                f"You ALREADY found {len(tool_output.entities)} entity(ies): {', '.join(found_names)} (IDs: {', '.join(found_ids)}). "
+                                f"DO NOT call tool_retrieve_entities again. "
+                                f"Use these entity IDs in tool_navigate_path to find related entities (reviews, categories, etc.)."
+                            )
+                        )
+
         return AgentResponse(answer="Agent was terminated because it reached the maximum number of steps!")
 
     async def _invoke_agent(self) -> AgentResponse:

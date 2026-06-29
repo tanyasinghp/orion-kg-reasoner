@@ -71,6 +71,10 @@ class GenericTools:
 
         Retrieved entities whose types match the given 'entity_type' have higher priority.
 
+        CRITICAL: Only use this tool for a NEW entity you haven't searched before.
+        If you already found an entity (it appears in ENTITIES or TOOL_LOG), use its ID
+        (e.g. E-1) in other tools instead of calling this tool again for the same search.
+
         This tool should be invoked separately for each potential entity, which means the values in `texts`
         should possibly be variations (name, description) of a single entity.
 

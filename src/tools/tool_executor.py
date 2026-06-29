@@ -164,9 +164,17 @@ class ToolExecutor(ToolExecutorBlueprint):
             trace("tool_executor.py", f"Collected args: { {k: (str(v)[:80] + '...') if isinstance(v, (list, str)) and len(str(v)) > 80 else v for k, v in tool_args.items() if k != 'context'} }")
 
             # Call tool function
-            trace("tool_executor.py", f"Calling tool '{tool_name}'...")
+            trace("tool_executor.py", f"Calling tool '{tool_name}'...", event_type="tool_execution",
+                  data={"tool_name": tool_name, "args": {k: v for k, v in tool_call.args.items()}})
             tool_output = await asyncio.wait_for(tool.arun(tool_args), timeout=self.config.tool_timeout)
-            trace("tool_executor.py", f"Tool '{tool_name}' returned: {len(tool_output.entities)} entities, {len(tool_output.relations)} relations")
+            n_entities = len(tool_output.entities) if tool_output else 0
+            n_relations = len(tool_output.relations) if tool_output else 0
+            entity_names = [{"id": e.id, "name": e.name, "type": e.types[0] if e.types else "unknown"} for e in (tool_output.entities if tool_output else [])]
+            relation_info = [{"source": r.source_id, "target": r.target_id, "rel": r.relation} for r in (tool_output.relations if tool_output else [])]
+            trace("tool_executor.py", f"Tool '{tool_name}' returned: {n_entities} entities, {n_relations} relations",
+                  event_type="tool_result",
+                  data={"tool_name": tool_name, "entities_count": n_entities, "relations_count": n_relations,
+                        "entities": entity_names, "relations": relation_info})
         except TimeoutError:
             error = f"Tool '{tool_name}' timed out after {self.config.tool_timeout} seconds"
         except Exception as e:
