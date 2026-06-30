@@ -74,6 +74,7 @@ class SparqlJsonResponse(BaseModel):
             JSON value 'true' or the JSON value 'false'.
         results: The value of the 'results' member is an object with a single key called 'bindings' containing
             the query solutions.
+        error: Error message if the SPARQL query failed during evaluation.
 
     .. _SPARQL 1.1 Query Results JSON Format:
         https://www.w3.org/TR/sparql11-results-json/
@@ -81,6 +82,7 @@ class SparqlJsonResponse(BaseModel):
     head: SparqlHeadField = Field(frozen=True)
     boolean: bool | None = Field(frozen=True, default=None)
     results: SparqlResultsField | None = Field(frozen=True, default=None)
+    error: str | None = Field(default=None)
 
     @model_validator(mode="after")
     def exclusive_result_fields(self) -> Self:

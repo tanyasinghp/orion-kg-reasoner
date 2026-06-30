@@ -1,4 +1,10 @@
 import json
+import asyncio
+import queue as _queue
+import threading
+import uuid
+import os
+import sys
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 from http import HTTPStatus
@@ -7,7 +13,7 @@ from zoneinfo import ZoneInfo
 import uvicorn
 from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from config import settings
@@ -19,6 +25,7 @@ from api.auth import UserDependency
 from api.logs import log_config
 from trace_event import TraceCollector
 from trace import set_collector
+from cli_stream_parser import CliStreamParser
 
 
 class QueryAgentInput(BaseModel):
@@ -595,6 +602,154 @@ function escapeHtml(str) {
 </body>
 </html>
 """
+
+
+@app.get("/agent/ask/stream")
+async def agent_ask_stream(query: str):
+    """SSE stream of agent reasoning trace events for the live UI."""
+    queue: asyncio.Queue = asyncio.Queue(maxsize=200)
+    collector = TraceCollector(sse_queue=queue)
+    from trace import set_collector as sc
+    sc(collector)
+
+    session_id = str(uuid.uuid4())
+    await queue.put({"type": "session_start", "query": query, "session_id": session_id})
+
+    async def run_agent():
+        try:
+            session = create_agent_session(trace_collector=collector)
+            answer = await session.generate_answer(query=query, debug=True)
+            if answer is not None:
+                # Check for max_steps_reached
+                if answer.raw_answer and "maximum number of steps" in answer.raw_answer.lower():
+                    await queue.put({"type": "max_steps_reached"})
+                else:
+                    entities = []
+                    if answer.augmented_answer and answer.augmented_answer.links:
+                        entities = [
+                            {"id": e.id, "name": e.name, "type": e.types[0] if e.types else "unknown"}
+                            for e in answer.augmented_answer.links
+                        ]
+                    answer_text = answer.augmented_answer.description if answer.augmented_answer else ""
+                    await queue.put({
+                        "type": "answer_ready",
+                        "answer_text": answer_text,
+                        "augmented_entities": entities,
+                    })
+        except Exception as e:
+            await queue.put({"type": "error", "message": str(e)})
+        finally:
+            sc(None)
+            await queue.put(None)  # sentinel to end stream
+
+    task = asyncio.create_task(run_agent())
+
+    async def event_generator():
+        while True:
+            event = await queue.get()
+            if event is None:
+                break
+            yield f"data: {json.dumps(event)}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@app.get("/agent/ask/stream2")
+async def agent_ask_stream2(query: str):
+    """SSE stream via subprocess-based CLI parser.
+
+    Spawns stream_runner.py as a subprocess (via Thread + subprocess.Popen),
+    reads raw stdout line by line, feeds each line to CliStreamParser,
+    and yields structured SSE events.  Uses a background thread to avoid
+    asyncio subprocess-PIPE issues when uvicorn's event loop is loaded.
+    """
+    async def event_generator():
+        sid = str(uuid.uuid4())
+        yield f"data: {json.dumps({'type': 'session_start', 'query': query, 'session_id': sid})}\n\n"
+
+        runner_path = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "stream_runner.py")
+        )
+        src_dir = os.path.dirname(runner_path)
+        env = {**os.environ, "PYTHONPATH": src_dir, "PYTHONUNBUFFERED": "1"}
+
+        venv_root = os.environ.get("VIRTUAL_ENV") or ""
+        if not venv_root:
+            if hasattr(sys, "real_prefix") or (sys.prefix != sys.base_prefix):
+                venv_root = sys.prefix
+        if not venv_root:
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            venv_root = os.path.join(project_root, ".venv")
+        venv_python = os.path.join(venv_root, "bin", "python3")
+        if not os.path.exists(venv_python):
+            venv_python = os.path.join(venv_root, "bin", "python")
+        if not os.path.exists(venv_python):
+            venv_python = sys.executable
+
+        parser = CliStreamParser()
+        tqueue: _queue.SimpleQueue[bytes | None] = _queue.SimpleQueue()
+        _proc_holder: list = []  # mutable container so generator can kill subprocess
+
+        def _reader():
+            """Read subprocess stdout in a background thread, push lines to tqueue."""
+            import subprocess
+            try:
+                p = subprocess.Popen(
+                    [venv_python, runner_path, query],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    env=env,
+                )
+                _proc_holder.append(p)
+                for raw_line in p.stdout:
+                    tqueue.put_nowait(raw_line)
+                p.wait()
+            except Exception as exc:
+                tqueue.put_nowait(f"ERROR: {exc}".encode())
+            finally:
+                tqueue.put_nowait(None)
+
+        thread = threading.Thread(target=_reader, daemon=True)
+        thread.start()
+
+        try:
+            while True:
+                try:
+                    line = tqueue.get_nowait()
+                except _queue.Empty:
+                    await asyncio.sleep(0.05)
+                    continue
+                if line is None:
+                    break
+                text = line.decode("utf-8", errors="replace")
+                for event in parser.feed(text):
+                    is_terminal = event.get("type") in ("answer_ready", "max_steps_reached", "error")
+                    yield f"data: {json.dumps(event)}\n\n"
+                    if is_terminal:
+                        if _proc_holder:
+                            try:
+                                _proc_holder[0].terminate()
+                            except Exception:
+                                pass
+                        return  # exit generator → closes SSE stream
+        except asyncio.TimeoutError:
+            yield f"data: {json.dumps({'type': 'error', 'message': 'Agent timed out (90s)'})}\n\n"
+        finally:
+            for event in parser.flush():
+                yield f"data: {json.dumps(event)}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@app.get("/ui/live")
+async def live_ui():
+    """Serve the live reasoning graph UI."""
+    html_path = os.path.join(os.path.dirname(__file__), "live_ui.html")
+    try:
+        with open(html_path) as f:
+            return HTMLResponse(f.read())
+    except FileNotFoundError:
+        return HTMLResponse("<h1>live_ui.html not found</h1>", status_code=404)
 
 
 @app.get("/health", tags=["Health"], status_code=HTTPStatus.OK)

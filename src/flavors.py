@@ -19,6 +19,7 @@ from tools.generic_tools import GenericTools
 from tools.amazon_tools import AmazonTools
 from tools.tool_provider import ToolProvider
 from tools.tool_executor import ToolExecutorBlueprint
+from trace_event import TraceCollector
 
 
 def absolute_file_path(path: str) -> str:
@@ -32,7 +33,8 @@ def project_root_path(path: str) -> str:
 def create_amazon_agent_session(
     after_query_parser_callback: AfterQueryParserCallback | None = None,
     after_reasoning_step_callback: AfterReasoningStepCallback | None = None,
-    after_tool_callback: AfterToolCallback | None = None
+    after_tool_callback: AfterToolCallback | None = None,
+    trace_collector: TraceCollector | None = None,
 ) -> AgentSession:
     """Create an agent session for the Amazon Product Reviews knowledge graph."""
     kg_client = KnowledgeGraphClientFactory.create_knowledge_graph_client(
@@ -97,7 +99,8 @@ def create_amazon_agent_session(
         tool_executor_blueprint=tool_executor_blueprint,
         after_query_parser_callback=after_query_parser_callback,
         after_reasoning_step_callback=after_reasoning_step_callback,
-        after_tool_callback=after_tool_callback
+        after_tool_callback=after_tool_callback,
+        trace_collector=trace_collector,
     )
 
     return agent_session
@@ -106,13 +109,15 @@ def create_amazon_agent_session(
 def create_agent_session(
     after_query_parser_callback: AfterQueryParserCallback | None = None,
     after_reasoning_step_callback: AfterReasoningStepCallback | None = None,
-    after_tool_callback: AfterToolCallback | None = None
+    after_tool_callback: AfterToolCallback | None = None,
+    trace_collector: TraceCollector | None = None,
 ) -> AgentSession:
     if settings.flavor == AgentFlavor.AMAZON:
         return create_amazon_agent_session(
             after_query_parser_callback=after_query_parser_callback,
             after_reasoning_step_callback=after_reasoning_step_callback,
-            after_tool_callback=after_tool_callback
+            after_tool_callback=after_tool_callback,
+            trace_collector=trace_collector,
         )
     else:
         raise ValueError(f"Unsupported agent flavor '{settings.flavor}'")

@@ -1,3 +1,4 @@
+import logging
 import textwrap
 from typing import TYPE_CHECKING
 from string import Template
@@ -12,6 +13,9 @@ from kg.client import KnowledgeGraphClient, SparqlJsonResponse
 from trace import trace
 if TYPE_CHECKING:
     from kg.sparql import SparqlRdfTerm
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -161,7 +165,7 @@ class GenericTools:
         *,
         context: Context, # implicit tool argument, not documented in doc string
         ids: list[str],
-        target_conditions: list[list[str]] | None = None,
+        target_conditions: list[list[str | int | float]] | None = None,
         match_mode: str = "all"
     ) -> ToolOutput:
         """Filter the given entities based on the given target conditions.
@@ -243,7 +247,7 @@ class GenericTools:
 
     def _parse_target_conditions(
         self,
-        target_conditions: list[list[str]] | None,
+        target_conditions: list[list[str | int | float]] | None,
         match_mode: str
     ) -> QueryFiltersForTargetConditions:
         """Parse the given target conditions into corresponding filter clauses to be used in the SPARQL query.
@@ -351,7 +355,7 @@ class GenericTools:
         ids: list[str],
         path: str,
         target_types: list[str] | None = None,
-        target_conditions: list[list[str]] | None = None,
+        target_conditions: list[list[str | int | float]] | None = None,
         match_mode: str = "all",
     ) -> ToolOutput:
         """Navigate from the given source entities to the target entities by following the given path.
@@ -478,7 +482,7 @@ class GenericTools:
         *,
         context: Context, # implicit tool argument, not documented in doc string
         types: list[str],
-        target_conditions: list[list[str]] | None = None,
+        target_conditions: list[list[str | int | float]] | None = None,
         match_mode: str = "all",
     ) -> ToolOutput:
         """Find entities of a specific type.
@@ -579,15 +583,25 @@ class GenericTools:
         # the tool executor will replace these entity IDs with entity URIs before calling the tool.
         formatted_uris = " ".join(f"<{uri}>" for uri in ids)
 
-        # Create query filters based on the given property paths
+        # ---- Fix 1 & 2: Resolve each path, returning error on unresolvable paths ----
         param_to_path: dict[str, str] = {}
         value_clauses: list[str] = []
 
         for i, path in enumerate(paths):
             param = f"value_{i}"
             param_to_path[param] = path
-            path_with_resolved_properties = self.ontology_provider.resolve_path_properties(path)
-            value_clause = f"OPTIONAL {{\n  ?uri {path_with_resolved_properties} ?{param} .\n}}"
+            resolved = self.ontology_provider.resolve_property_path(path)
+            if resolved is None:
+                available = self.ontology_provider.list_property_paths()
+                return ToolOutput(
+                    error=(
+                        f"Property path '{path}' could not be resolved in the ontology. "
+                        f"Available property paths: {available}. "
+                        f"Use one of these exact paths, or use tool_retrieve_entities first "
+                        f"to find entities and confirm available properties."
+                    )
+                )
+            value_clause = f"OPTIONAL {{\n  ?uri {resolved} ?{param} .\n}}"
             value_clauses.append(value_clause)
 
         formatted_value_clauses = "\n".join(value_clauses)
@@ -615,7 +629,38 @@ class GenericTools:
             limit=1000
         )
 
+        # ---- Fix 4: Validate SPARQL syntax before execution ----
+        from rdflib.plugins.sparql import prepareQuery
+        try:
+            prepareQuery(query)
+        except Exception as e:
+            logger.error(f"Generated invalid SPARQL: {query}")
+            logger.error(f"Validation error: {e}")
+            return ToolOutput(
+                error=f"Internal SPARQL generation error: {e}. "
+                      f"The property paths {paths} may not be correctly mapped. "
+                      f"Try simpler property names or use tool_retrieve_entities first."
+            )
+
+        # Execute the query
         response: SparqlJsonResponse = await self.knowledge_graph_client.execute_sparql_query(query)
+
+        # ---- Fix 3: Surface SPARQL execution errors to the LLM ----
+        if response.error:
+            trace("generic_tools.py", f"SPARQL query failed: {response.error} for paths={paths}")
+            return ToolOutput(
+                error=(
+                    f"SPARQL query failed: {response.error}. "
+                    f"The property path(s) {paths} may not be correctly mapped. "
+                    f"Try using tool_retrieve_entities first to confirm the entity, "
+                    f"then retry with an exact property name from the ontology."
+                )
+            )
+
+        if response.results is None:
+            return ToolOutput(
+                error="SPARQL query returned no results structure (unexpected response format)."
+            )
 
         # Make sure the resulting entities are sorted in the same order as the
         # given entities as the SPARQL query is not guaranteeing this order

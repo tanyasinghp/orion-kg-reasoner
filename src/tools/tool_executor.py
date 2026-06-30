@@ -47,11 +47,14 @@ class ToolOutput(BaseModel):
             allows the tool executor to also register these additional entities with the agent context, making them
             available in later tool calls without requiring them to be looked up in the knowledge graph again.
         relations: All relations returned by the tool.
+        error: Error message if the tool failed during execution. When set, entities/relations
+            should be considered unreliable and the LLM must not answer from memory.
     """
     information: str | None = Field(frozen=True, default=None)
     entities: list[Entity] = Field(frozen=True, default_factory=list)
     extra_entities: list[Entity] = Field(frozen=True, default_factory=list)
     relations: list[Relation] = Field(frozen=True, default_factory=list)
+    error: str | None = Field(default=None)
 
 
 class ToolExecutorBlueprint:
@@ -196,6 +199,9 @@ class ToolExecutor(ToolExecutorBlueprint):
         # In case an error occurred, also add it to the error log in the agent context
         if error is not None:
             self.context.errors.append(error)
+        elif tool_output is not None and tool_output.error is not None:
+            self.context.errors.append(f"Tool '{tool_name}' returned error: {tool_output.error}")
+            error = tool_output.error
 
         # Update the entities and relations in the agent context which should be visible to the agent
         await self._update_agent_context()
@@ -318,10 +324,20 @@ class ToolExecutor(ToolExecutorBlueprint):
             # Tool provided entities or relations as output
             else:
                 # Rank and select tool output (entities, relations) which should be made available to the agent
+                before_entities = len(tool_output.entities)
+                after_entities = min(before_entities, self.config.max_tool_output_observed) if self.config.max_tool_output_observed else before_entities
+                trace("tool_executor.py", f"Ranking entities: {before_entities} → {after_entities}",
+                      event_type="ranker",
+                      data={"before": before_entities, "after": after_entities, "target": "entities", "tool": tool_call.tool_name})
                 selected_entities = self.ranker.rank_and_select_entities(
                     tool_output.entities, self.config.max_tool_output_observed
                 )
 
+                before_relations = len(tool_output.relations)
+                after_relations = min(before_relations, self.config.max_tool_output_observed) if self.config.max_tool_output_observed else before_relations
+                trace("tool_executor.py", f"Ranking relations: {before_relations} → {after_relations}",
+                      event_type="ranker",
+                      data={"before": before_relations, "after": after_relations, "target": "relations", "tool": tool_call.tool_name})
                 selected_relations = self.ranker.rank_and_select_relations(
                     self.context, tool_output.relations, self.config.max_tool_output_observed
                 )

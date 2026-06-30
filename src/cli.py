@@ -125,6 +125,9 @@ class AgentShell(cmd.Cmd):
         )
         # Tool output
         self._print_with_layout("", "Tool output:", "", style="yellow")
+        if tool_output is None:
+            self._print_with_layout("", "└── (tool execution failed)", "", style="red")
+            return
         # Show subset of entities in tool output
         self._print_with_layout("", f"├── Entities ({len(tool_output.entities)} total)", "", style="yellow")
         entities_to_show = tool_output.entities[:10]

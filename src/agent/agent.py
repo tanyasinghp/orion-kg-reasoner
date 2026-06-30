@@ -172,6 +172,7 @@ class Agent:
         step = 0
         consecutive_parse_errors = 0
         max_parse_errors = 2
+        consecutive_tool_errors = 0
 
         while step <= self.config.max_steps:
             if step == self.config.max_steps - 1:
@@ -219,6 +220,22 @@ class Agent:
                 continue
 
             if response.type == AgentResponseType.ANSWER:
+                # ---- Fix 5: Hallucination guard ----
+                if consecutive_tool_errors > 0:
+                    trace("agent.py",
+                          f"Step {step}: LLM attempted answer but last {consecutive_tool_errors} tool(s) "
+                          f"returned errors. Blocking hallucination.",
+                          event_type="step",
+                          data={"step": step, "status": "hallucination_guard"})
+                    self.max_prio_messages.append(
+                        format_max_prio_message(
+                            "The previous tool call(s) failed with an error and returned no data. "
+                            "Do NOT answer from memory or training knowledge. "
+                            "Either retry with a corrected tool call or state that the information "
+                            "could not be retrieved from the knowledge graph."
+                        )
+                    )
+                    continue
                 return response
             elif response.type == AgentResponseType.TOOL_CALL:
                 tool_call_start_time = datetime.now()
@@ -230,6 +247,12 @@ class Agent:
                 if self.after_tool_callback is not None:
                     self.after_tool_callback(response.tool_call, tool_output, tool_call_duration)
                     logger.debug("Executed after tool callback")
+
+                # ---- Fix 5: Track consecutive tool errors for hallucination guard ----
+                if tool_output is not None and tool_output.error is not None:
+                    consecutive_tool_errors += 1
+                else:
+                    consecutive_tool_errors = 0
 
                 # Guardrail: after tool_retrieve_entities finds entities, tell LLM not to re-search
                 if response.tool_call.tool_name == "tool_retrieve_entities" and tool_output is not None:

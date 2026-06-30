@@ -190,7 +190,7 @@ class RdfLibKnowledgeGraphClient(KnowledgeGraphClient):
         except Exception as exc:
             trace("rdflib_client.py", f"  SPARQL evaluation error: {exc}", event_type="sparql_error",
                   data={"error": str(exc)})
-            return SparqlJsonResponse(head={"vars": []}, results={"bindings": []})
+            return SparqlJsonResponse(head={"vars": []}, results={"bindings": []}, error=str(exc))
 
     async def execute_sparql_update(self, update: str) -> None:
         self.graph.update(update)

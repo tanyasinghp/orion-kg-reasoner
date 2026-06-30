@@ -229,10 +229,12 @@ class AgentSession:
             context = await self.query_parser.parse_query(query, self.input_token_counter)
             query_parser_end_time = datetime.now()
             query_parser_duration = (query_parser_end_time - query_parser_start_time).total_seconds()
-            trace("agent_session.py", f"Phase 1 done: intents={context.intents}, target_types={context.target_types}", data={
+            trace("agent_session.py", f"Phase 1 done: intents={context.intents}, target_types={context.target_types}", event_type="phase", data={
+                "phase": "query_parser",
                 "intents": context.intents,
                 "target_types": context.target_types,
                 "relevant_types": context.relevant_types,
+                "background_info_ids": list(context.query_specific_background_information_ids),
             })
 
             if self.after_query_parser_callback is not None:

@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KGR Live Reasoning</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0a0a12;color:#f1f0eb;overflow:hidden;height:100vh}
+#app{display:flex;flex-direction:column;height:100vh}
+#main{display:flex;flex:1;overflow:hidden}
+
+/* Left Panel */
+#left-panel{width:35%;min-width:320px;display:flex;flex-direction:column;border-right:1px solid rgba(124,58,237,0.2);background:#0d0d18}
+#left-header{padding:16px 20px 8px;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#7c3aed;border-bottom:1px solid rgba(124,58,237,0.08)}
+#answer-area{flex:1;overflow-y:auto;padding:16px 20px}
+#answer-area .placeholder{color:#4a4a5a;font-size:13px;text-align:center;padding:40px 0}
+.answer-text{font-size:14px;line-height:1.6;color:#f1f0eb;margin-bottom:16px;background:rgba(124,58,237,0.06);border:1px solid rgba(124,58,237,0.15);border-radius:8px;padding:14px 16px;display:none}
+.answer-text.show{display:block}
+.entity-list{margin:0;display:none}
+.entity-list.show{display:block}
+.entity-item{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:12px;border-bottom:1px solid rgba(255,255,255,0.04)}
+.entity-item:last-child{border:none}
+.entity-id{color:#7c3aed;font-family:monospace;font-size:11px;min-width:36px}
+.entity-name{color:#f1f0eb;flex:1}
+.entity-type{font-size:10px;padding:1px 6px;border-radius:4px;background:rgba(6,182,212,0.15);color:#06b6d4;text-transform:uppercase;letter-spacing:.05em}
+#input-area{padding:12px 16px;border-top:1px solid rgba(124,58,237,0.1);background:#0a0a14;display:flex;gap:8px;align-items:flex-end}
+#input-area textarea{flex:1;background:#14141f;border:1px solid rgba(124,58,237,0.2);border-radius:8px;color:#f1f0eb;padding:10px 12px;font-size:13px;font-family:inherit;resize:none;outline:none;min-height:40px;max-height:120px;transition:border-color .2s}
+#input-area textarea:focus{border-color:#7c3aed}
+#input-area textarea::placeholder{color:#4a4a5a}
+#input-area button{background:linear-gradient(135deg,#7c3aed,#a855f7);color:#fff;border:none;border-radius:8px;padding:10px 18px;font-size:13px;font-weight:600;cursor:pointer;transition:opacity .2s,transform .1s;white-space:nowrap}
+#input-area button:hover{opacity:.9}
+#input-area button:active{transform:scale(.97)}
+#input-area button:disabled{opacity:.4;cursor:default}
+
+/* Right Panel */
+#right-panel{flex:1;display:flex;flex-direction:column;position:relative;background:#0a0a12;overflow:hidden}
+#status-bar{display:flex;align-items:center;gap:16px;padding:8px 16px;background:#0e0e18;border-bottom:1px solid rgba(124,58,237,0.1);font-family:monospace;font-size:11px;color:#9ca3af;min-height:36px;flex-shrink:0}
+.stat{display:flex;align-items:center;gap:4px}
+.stat-label{color:#6a6a7a}
+.stat-value{color:#f1f0eb;min-width:24px}
+.stat-value.pulse{animation:pulse 1.5s infinite}
+.stop-btn{margin-left:auto;background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.3);border-radius:4px;padding:2px 10px;font-size:11px;font-family:monospace;cursor:pointer;display:none}
+.stop-btn.show{display:inline}
+.stop-btn:hover{background:rgba(239,68,68,0.25)}
+
+/* Graph */
+#graph-wrap{flex:1;overflow-y:auto;overflow-x:hidden;position:relative;padding:20px 0}
+#graph-wrap::-webkit-scrollbar{width:4px}
+#graph-wrap::-webkit-scrollbar-track{background:transparent}
+#graph-wrap::-webkit-scrollbar-thumb{background:rgba(124,58,237,0.3);border-radius:2px}
+#node-list{display:flex;flex-direction:column;align-items:center;min-height:100%;position:relative;gap:0}
+
+/* Nodes */
+.node{position:relative;width:320px;background:rgba(18,18,32,0.92);border:1px solid rgba(124,58,237,0.2);border-radius:8px;padding:10px 14px;opacity:0;transform:translateY(12px);transition:opacity .25s ease,transform .25s ease;cursor:pointer;margin-bottom:2px}
+.node.show{opacity:1;transform:translateY(0)}
+.node:hover{border-color:rgba(124,58,237,0.4)}
+
+.node-phase{border-color:rgba(124,58,237,0.3);background:linear-gradient(180deg,rgba(124,58,237,0.08),rgba(18,18,32,0.95))}
+.node-tool{border-color:rgba(168,85,247,0.2)}
+.node-tool.running{border-color:rgba(168,85,247,0.5);box-shadow:0 0 8px rgba(168,85,247,0.12)}
+.node-tool.success{border-color:rgba(6,182,212,0.35);border-left:3px solid #06b6d4}
+.node-tool.failed{border-color:rgba(239,68,68,0.35);border-left:3px solid #ef4444}
+.node-tool.loop{margin-left:30px;background:rgba(251,191,36,0.04);border-color:rgba(251,191,36,0.4)}
+.node-answer{border-color:rgba(6,182,212,0.35);background:linear-gradient(135deg,rgba(6,182,212,0.05),rgba(124,58,237,0.05))}
+.node-error{border-color:rgba(239,68,68,0.4);background:rgba(239,68,68,0.04)}
+.node-max-steps{border-color:rgba(239,68,68,0.4);background:rgba(239,68,68,0.04)}
+
+.node-title{font-size:12px;font-weight:500;color:#f1f0eb;display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.node-title .spinner{display:none;width:10px;height:10px;border:2px solid rgba(168,85,247,0.2);border-top-color:#a855f7;border-radius:50%;animation:spin .6s linear infinite}
+.node-title .spinner.show{display:inline-block}
+.node-badge{display:inline-flex;align-items:center;gap:2px;font-size:9px;padding:1px 5px;border-radius:3px;font-weight:500;white-space:nowrap}
+.badge-purple{background:rgba(124,58,237,0.15);color:#a78bfa}
+.badge-teal{background:rgba(6,182,212,0.12);color:#06b6d4}
+.badge-gray{background:rgba(156,163,175,0.1);color:#9ca3af}
+.badge-amber{background:rgba(251,191,36,0.15);color:#fbbf24}
+.badge-red{background:rgba(239,68,68,0.15);color:#ef4444}
+.badge-green{background:rgba(34,197,94,0.15);color:#22c55e}
+
+.node-sub{font-size:10px;color:#9ca3af;line-height:1.3;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.node-detail{display:flex;flex-wrap:wrap;gap:3px;margin-top:4px}
+.node-detail .nd-item{font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(255,255,255,0.04);color:#9ca3af}
+
+/* Connector */
+.connector{width:2px;height:20px;background:rgba(168,85,247,0.2);flex-shrink:0;position:relative}
+.connector::after{content:'';position:absolute;bottom:-3px;left:50%;transform:translateX(-50%);width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid rgba(168,85,247,0.3)}
+
+/* ========== DETAIL DRAWER ========== */
+#drawer-overlay{position:absolute;top:0;left:0;right:0;bottom:0;z-index:8;display:none}
+#drawer-overlay.show{display:block}
+#detail-drawer{position:absolute;top:0;right:-420px;width:400px;max-width:90%;height:100%;background:#0d0d18;border-left:1px solid rgba(124,58,237,0.15);z-index:9;transition:right .3s ease;overflow-y:auto;padding:16px 18px;display:flex;flex-direction:column;gap:8px}
+#detail-drawer.open{right:0}
+.drawer-close{align-self:flex-end;background:none;border:none;color:#9ca3af;font-size:20px;cursor:pointer;padding:0 4px;border-radius:4px;line-height:1}
+.drawer-close:hover{background:rgba(255,255,255,0.05);color:#f1f0eb}
+.drawer-title{font-size:13px;font-weight:600;color:#f1f0eb;padding-bottom:4px;border-bottom:1px solid rgba(124,58,237,0.1)}
+
+/* Collapsible sections */
+.collapse{display:flex;flex-direction:column;gap:4px}
+.collapse-header{display:flex;align-items:center;gap:6px;padding:6px 8px;background:rgba(124,58,237,0.06);border:1px solid rgba(124,58,237,0.1);border-radius:5px;cursor:pointer;font-size:11px;font-weight:500;color:#a78bfa;user-select:none;transition:background .15s}
+.collapse-header:hover{background:rgba(124,58,237,0.1)}
+.collapse-header .arrow{transition:transform .2s;font-size:9px;color:#7c3aed}
+.collapse-header.open .arrow{transform:rotate(90deg)}
+.collapse-body{display:none;padding:6px 8px;background:rgba(0,0,0,0.15);border:1px solid rgba(124,58,237,0.06);border-radius:5px;max-height:300px;overflow-y:auto}
+.collapse-body.open{display:block}
+.collapse-body pre{font-family:monospace;font-size:9px;color:#9ca3af;white-space:pre-wrap;word-break:break-all;line-height:1.4;margin:0}
+.collapse-body .code-block{background:#0a0a12;border:1px solid rgba(124,58,237,0.08);border-radius:4px;padding:8px;font-family:monospace;font-size:9px;color:#c0c0d0;white-space:pre-wrap;word-break:break-all;line-height:1.4;margin-bottom:6px;max-height:150px;overflow-y:auto}
+.collapse-body .result-count{font-size:9px;color:#06b6d4;margin-bottom:4px}
+.collapse-body .feat-row{display:flex;align-items:flex-start;gap:4px;padding:2px 0;font-size:9px;border-bottom:1px solid rgba(255,255,255,0.03);font-family:monospace;color:#9ca3af}
+.collapse-body .feat-row .uri{color:#a78bfa;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.collapse-body .feat-row .feat{color:#22c55e;white-space:nowrap}
+.collapse-body .score-row{font-family:monospace;font-size:9px;color:#9ca3af;padding:1px 0}
+
+.ratio-bar{display:flex;align-items:center;gap:6px;padding:4px 0}
+.ratio-bar .bar-track{flex:1;height:4px;background:rgba(255,255,255,0.06);border-radius:2px;overflow:hidden;max-width:100px}
+.ratio-bar .bar-fill{height:100%;background:linear-gradient(90deg,#06b6d4,#7c3aed);border-radius:2px;transition:width .4s ease}
+
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+
+#no-data{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#3a3a4a;font-size:14px;gap:8px}
+#no-data .icon{font-size:32px;opacity:.3}
+#no-data .sub{font-size:12px;color:#2a2a3a}
+</style>
+</head>
+<body>
+<div id="app">
+<div id="main">
+  <!-- Left -->
+  <div id="left-panel">
+    <div id="left-header">KGR Live Reasoning</div>
+    <div id="answer-area">
+      <div class="placeholder">Submit a query to see the agent trace.</div>
+      <div class="answer-text" id="answer-text"></div>
+      <div class="entity-list" id="entity-list"></div>
+    </div>
+    <div id="input-area">
+      <textarea id="query-input" placeholder="e.g. Kindle Paperwhite review" rows="1"></textarea>
+      <button id="run-btn">Run</button>
+    </div>
+  </div>
+
+  <!-- Right -->
+  <div id="right-panel">
+    <div id="status-bar">
+      <span class="stat"><span class="stat-label">Step</span><span class="stat-value" id="stat-step">0</span></span>
+      <span class="stat"><span class="stat-label">Elapsed</span><span class="stat-value" id="stat-elapsed">0.0s</span></span>
+      <span class="stat"><span class="stat-label">Events</span><span class="stat-value" id="stat-events">0</span></span>
+      <span class="stat" title="Local LLM providers (Ollama) do not report token usage"><span class="stat-label">Token tracking unavailable with local LLM</span><span class="stat-value" id="stat-tokens">N/A</span></span>
+      <button class="stop-btn" id="stop-btn">Stop</button>
+    </div>
+    <div id="graph-wrap">
+      <div id="node-list">
+        <div id="no-data">
+          <div class="icon">&#9678;</div>
+          <div>Waiting for query...</div>
+          <div class="sub">Type a question in the left panel</div>
+        </div>
+      </div>
+    </div>
+    <!-- Drawer -->
+    <div id="drawer-overlay"></div>
+    <div id="detail-drawer">
+      <button class="drawer-close" id="drawer-close">&times;</button>
+      <div class="drawer-title" id="drawer-title">Node Details</div>
+      <div id="drawer-body"></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+// ---- State ----
+let es=null,nodeCount=0,nodeEls=[],loopHist={},startTime=null,elapsedTimer=null,active=false,sepCount=0;
+let toolDataByStep={}; // step -> {tool_name, args, reason, entity_count, relation_count, latency, sparql_queries, sparql_results, uri_list, entity_features, ranker_detail, raw_lines, ranker_fired}
+let sessionComplete=false;
+
+const qi=document.getElementById('query-input'),rb=document.getElementById('run-btn'),sb=document.getElementById('stop-btn');
+const nl=document.getElementById('node-list'),nd=document.getElementById('no-data');
+const at=document.getElementById('answer-text'),el=document.getElementById('entity-list');
+const ss=document.getElementById('stat-step'),se=document.getElementById('stat-elapsed'),sev=document.getElementById('stat-events'),stk=document.getElementById('stat-tokens');
+const dr=document.getElementById('detail-drawer'),drb=document.getElementById('drawer-body'),drt=document.getElementById('drawer-title');
+const dclose=document.getElementById('drawer-close'),doverlay=document.getElementById('drawer-overlay');
+
+qi.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();run()}});
+rb.addEventListener('click',run);
+sb.addEventListener('click',stop);
+dclose.addEventListener('click',()=>dr.classList.remove('open'));
+doverlay.addEventListener('click',()=>dr.classList.remove('open'));
+
+function run(){
+  const q=qi.value.trim();if(!q||active)return;
+  reset();startTime=Date.now();elapsedTimer=setInterval(()=>{se.textContent=((Date.now()-startTime)/1000).toFixed(1)+'s'},100);
+  active=true;sessionComplete=false;rb.disabled=true;rb.textContent='Running...';sb.classList.add('show');ss.textContent='0';sev.textContent='0';
+  nd.style.display='none';
+  es=new EventSource('/v1/agent/ask/stream2?query='+encodeURIComponent(q));
+  es.onmessage=e=>{
+    if(sessionComplete)return;
+    try{
+      const d=JSON.parse(e.data);
+      const t=d.type;
+      if(t==='answer_ready'||t==='max_steps_reached'||t==='error'){
+        sessionComplete=true;
+        handle(d);
+        es.close();
+        return;
+      }
+      handle(d);
+    }catch(ex){console.error('SSE err:',ex)}
+  };
+  es.onerror=()=>{es.close();finish()};
+}
+
+function stop(){if(es){es.close();es=null}finish()}
+function finish(){active=false;rb.disabled=false;rb.textContent='Run';sb.classList.remove('show');if(elapsedTimer){clearInterval(elapsedTimer);elapsedTimer=null}}
+
+function reset(){
+  sessionComplete=false;
+  if(es){es.close();es=null}
+  nl.innerHTML='';nd.style.display='none';nodeCount=0;nodeEls=[];loopHist={};toolDataByStep={};
+  at.classList.remove('show');at.textContent='';el.classList.remove('show');el.innerHTML='';dr.classList.remove('open');
+}
+
+// ---- Event handling ----
+function handle(d){
+  const t=d.type;
+  sev.textContent=Number(sev.textContent)+1;
+  switch(t){
+    case 'session_start':break;
+    case 'parse_complete':addParseNode(d);break;
+    case 'tool_start':addToolStart(d);break;
+    case 'tool_complete':updateTool(d);break;
+    case 'ranker_fired': // ignore as a separate node - shown as badge on tool node
+      break;
+    case 'answer_ready':addAnswer(d);showAnswer(d);break;
+    case 'max_steps_reached':addMaxSteps(d);break;
+    case 'error':addError(d);break;
+  }
+  // store for drawer
+  if(t==='parse_complete')toolDataByStep['parse']=d;
+  if(t==='tool_start'){const s=d.step||nodeCount;toolDataByStep['s'+s]={...toolDataByStep['s'+s],tool_name:d.tool_name,args:d.args,reason:d.reason,loop:d.loop,loop_count:d.loop_count}}
+  if(t==='tool_complete'){const s=d.step;toolDataByStep['s'+s]={...toolDataByStep['s'+s],entity_count:d.entity_count,relation_count:d.relation_count,latency:d.latency_seconds,sparql_queries:d.sparql_queries,sparql_results:d.sparql_results,uri_list:d.uri_list,entity_features:d.entity_features,ranker_detail:d.ranker_detail,raw_lines:d.raw_lines}}
+  if(t==='ranker_fired'){const s=d.step;toolDataByStep['s'+s]={...toolDataByStep['s'+s],ranker_fired:d}}
+  if(t==='answer_ready')toolDataByStep['answer']=d;
+  if(t==='max_steps_reached')toolDataByStep['answer']=d;
+}
+
+// ---- Nodes ----
+function addParseNode(d){
+  const n=document.createElement('div');
+  n.className='node node-phase show';n.dataset.key='parse';
+  let h='<div class="node-title">&#9670; Query Parsed</div>';
+  h+='<div class="node-detail">';
+  (d.intents||[]).forEach(i=>{h+=`<span class="nd-item badge-purple">${i}</span>`});
+  (d.target_types||[]).forEach(t=>{h+=`<span class="nd-item badge-teal">${t}</span>`});
+  h+='</div>';
+  n.innerHTML=h;
+  n.onclick=()=>showDrawer('Query Parsed','parse');
+  appendNode(n);
+}
+
+function addToolStart(d){
+  const step=d.step||++sepCount;
+  const argsHash=JSON.stringify(d.args||{});
+  const lk=(d.tool_name||'')+'|'+argsHash;
+  const isLoop=lk in loopHist;
+  if(!isLoop)loopHist[lk]=step;
+
+  ss.textContent=step;
+  const n=document.createElement('div');
+  n.className='node node-tool running show';
+  n.dataset.key='s'+step;
+  if(isLoop){n.classList.add('loop');n.style.marginLeft='30px'}
+
+  let h='<div class="node-title">';
+  h+=`<span class="badge-gray">S${step}</span> ${d.tool_name||'?'}`;
+  h+=`<span class="spinner show"></span>`;
+  // Loop badge
+  if(isLoop)h+=` <span class="badge-amber">&#8635; Loop</span>`;
+  h+='</div>';
+
+  // Key args (abbreviated)
+  if(d.args){
+    const abbr=Object.entries(d.args).map(([k,v])=>{
+      const vs=typeof v==='object'?JSON.stringify(v):String(v);
+      return vs.length>50?vs.slice(0,50)+'...':vs;
+    }).join(', ');
+    h+=`<div class="node-sub">${abbr}</div>`;
+  }
+
+  n.innerHTML=h;
+  n.onclick=()=>showDrawer(`Step ${step}: ${d.tool_name||'?'}`,'s'+step);
+  appendNode(n);
+}
+
+function updateTool(d){
+  const step=d.step;
+  for(let i=nodeEls.length-1;i>=0;i--){
+    const el=nodeEls[i];
+    if(el.dataset.key==='s'+step&&el.classList.contains('running')){
+      el.classList.remove('running');
+      const ec=d.entity_count||0,rc=d.relation_count||0,lat=d.latency_seconds||0;
+      if(ec===0&&rc===0)el.classList.add('failed');else el.classList.add('success');
+      // Remove spinner
+      const sp=el.querySelector('.spinner');if(sp)sp.classList.remove('show');
+      // Detail row
+      let det=el.querySelector('.node-detail');
+      if(!det){det=document.createElement('div');det.className='node-detail';el.appendChild(det)}
+      det.innerHTML='';
+      det.innerHTML+=`<span class="nd-item badge-green">${ec} ent</span>`;
+      det.innerHTML+=`<span class="nd-item badge-green" title="Relations are returned by navigation tool calls only">${rc} rel</span>`;
+      det.innerHTML+=`<span class="nd-item badge-gray">${lat.toFixed(2)}s</span>`;
+      // Ranker fired badge
+      const rfd=toolDataByStep['s'+step]?.ranker_fired;
+      if(rfd)det.innerHTML+=`<span class="nd-item badge-amber">${rfd.entities_in}&rarr;${rfd.entities_out}</span>`;
+      break;
+    }
+  }
+}
+
+function addAnswer(d){
+  const n=document.createElement('div');
+  n.className='node node-answer show';n.dataset.key='answer';
+  const prev=(d.answer_text||'').slice(0,60)+((d.answer_text||'').length>60?'...':'');
+  n.innerHTML=`<div class="node-title">&#10003; Answer Ready</div><div class="node-sub">${prev}</div>`;
+  n.onclick=()=>showDrawer('Final Answer','answer');
+  appendNode(n);
+}
+
+function addMaxSteps(d){
+  const n=document.createElement('div');
+  n.className='node node-max-steps show';n.dataset.key='answer';
+  n.innerHTML=`<div class="node-title">&#9888; Max Steps</div><div class="node-sub">Agent reached maximum steps without producing a final answer.</div>`;
+  n.onclick=()=>showDrawer('Terminated','answer');
+  appendNode(n);
+}
+
+function addError(d){
+  const n=document.createElement('div');
+  n.className='node node-error show';n.dataset.key='error';
+  const msg=d.message||'Unknown error';
+  n.innerHTML=`<div class="node-title">&#9888; Error</div><div class="node-sub">${msg.slice(0,100)}</div>`;
+  n.onclick=()=>showDrawer('Error',null,[{label:'Message',val:msg}]);
+  appendNode(n);
+}
+
+function appendNode(n){
+  const no=document.getElementById('no-data');if(no&&no.parentNode)no.remove();
+  if(nodeEls.length>0){const c=document.createElement('div');c.className='connector';nl.appendChild(c)}
+  nl.appendChild(n);nodeEls.push(n);
+  document.getElementById('graph-wrap').scrollTop=nl.scrollHeight;
+}
+
+function showAnswer(d){
+  at.classList.add('show');at.textContent=d.answer_text||'';
+  el.classList.add('show');el.innerHTML='';
+  // No augmented_entities in the new schema
+}
+
+// ========== DETAIL DRAWER ==========
+function showDrawer(title,key,extraFields){
+  drt.textContent=title;drb.innerHTML='';
+  const data=key?toolDataByStep[key]:null;
+
+  if(key==='parse'&&data){
+    addDrawerText('Intents',(data.intents||[]).join(', '));
+    addDrawerText('Target Types',(data.target_types||[]).join(', '));
+    addDrawerText('Background Info',(data.background_info||[]).join(', '));
+    addCollapse('Raw Output',data.raw_lines||[],false);
+  }
+  else if(key&&key.startsWith('s')&&data){
+    // Tool name + args
+    addDrawerText('Tool',data.tool_name||'?');
+    addDrawerText('Reason',data.reason||'—');
+    if(data.args)addDrawerText('Arguments',JSON.stringify(data.args,null,2));
+    addDrawerText('Result',`${data.entity_count||0} entities, ${data.relation_count||0} relations`);
+    addDrawerText('Latency',data.latency?`${data.latency.toFixed(3)}s`:'—');
+    if(data.loop)addDrawerText('Loop','Yes (×'+data.loop_count+')');
+
+    // Collapse 1: SPARQL queries
+    const spq=data.sparql_queries||[],spr=data.sparql_results||[];
+    if(spq.length){
+      let html='';
+      spq.forEach((q,i)=>{
+        // Extract query text from line like "  ⚡ [rdflib_client.py] SPARQL: PREFIX ..."
+        const qtext=q.replace(/.*SPARQL:\s*/,'');
+        html+=`<div class="code-block">${escHtml(qtext)}</div>`;
+        if(i<spr.length)html+=`<div class="result-count">&#9660; ${escHtml(spr[i])}</div>`;
+      });
+      addCollapseHTML('SPARQL Queries ('+spq.length+')',html);
+    }
+
+    // Collapse 2: Entities found
+    const uris=data.uri_list||[],feats=data.entity_features||[];
+    if(uris.length||feats.length){
+      let html='';
+      const maxShow=20;
+      const all=feats.length?feats:uris;
+      all.slice(0,maxShow).forEach((f,i)=>{
+        if(f.startsWith('http'))html+=`<div class="feat-row"><span class="uri">${escHtml(f)}</span></div>`;
+        else html+=`<div class="feat-row"><span class="feat">${escHtml(f)}</span></div>`;
+      });
+      if(all.length>maxShow)html+=`<div style="font-size:9px;color:#6a6a7a;">... ${all.length-maxShow} more</div>`;
+      addCollapseHTML('Entities ('+all.length+')',html);
+    }
+
+    // Collapse 3: Ranker
+    const rd=data.ranker_detail;
+    if(rd&&(rd.entities_in>0||rd.relations_in>0)){
+      let html='';
+      if(rd.entities_in>0){
+        const pct=rd.entities_in>0?(rd.entities_out/rd.entities_in*100):0;
+        html+=`<div class="ratio-bar"><span>${rd.entities_in}</span><div class="bar-track"><div class="bar-fill" style="width:${Math.min(pct,100)}%"></div></div><span style="color:#06b6d4">${rd.entities_out}</span></div>`;
+        html+=`<div style="font-size:9px;color:#6a6a7a;">Entities: ${rd.entities_in} &rarr; ${rd.entities_out} (limit: ${rd.limit||'—'})</div>`;
+      }
+      if(rd.relations_in>0){
+        html+=`<div style="font-size:9px;color:#9ca3af;margin-top:4px;">Relations: ${rd.relations_in} &rarr; ${rd.relations_out} (limit: ${rd.limit||'—'})</div>`;
+      }
+      (rd.scores||[]).slice(0,15).forEach(s=>{html+=`<div class="score-row">${escHtml(s)}</div>`});
+      if((rd.scores||[]).length>15)html+=`<div style="font-size:9px;color:#6a6a7a;">... ${rd.scores.length-15} more</div>`;
+      addCollapseHTML('Ranker',html);
+    }
+
+    // Collapse 4: Raw output
+    addCollapse('Raw Output',data.raw_lines||[],false);
+  }
+  else if(key==='answer'&&data){
+    addDrawerText('Answer',data.answer_text||'');
+    addCollapse('Raw Output',data.raw_lines||[],false);
+  }
+
+  // Extra fields for error etc.
+  if(extraFields){extraFields.forEach(f=>addDrawerText(f.label,f.val))}
+
+  dr.classList.add('open');
+}
+
+function addDrawerText(label,val){
+  if(!val)return;
+  drb.innerHTML+=`<div style="display:flex;gap:8px;padding:3px 0;font-size:11px;border-bottom:1px solid rgba(255,255,255,0.04)"><span style="color:#9ca3af;min-width:70px;">${label}</span><span style="color:#f1f0eb;font-family:monospace;font-size:10px;word-break:break-all;flex:1">${escHtml(String(val))}</span></div>`;
+}
+
+function addCollapse(title,lines,defaultOpen){
+  if(!lines||!lines.length)return;
+  addCollapseHTML(title,lines.map(l=>`<pre>${escHtml(l)}</pre>`).join(''),defaultOpen);
+}
+
+function addCollapseHTML(title,html,defaultOpen){
+  const id='c'+Math.random().toString(36).slice(2,8);
+  drb.innerHTML+=`<div class="collapse">
+    <div class="collapse-header${defaultOpen?' open':''}" onclick="document.getElementById('${id}').classList.toggle('open');this.classList.toggle('open')">
+      <span class="arrow">&#9654;</span> ${title}
+    </div>
+    <div class="collapse-body${defaultOpen?' open':''}" id="${id}">${html}</div>
+  </div>`;
+}
+
+function escHtml(s){
+  if(!s)return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>

@@ -411,6 +411,44 @@ class OntologyProvider:
 
         return resolved_path
 
+    def resolve_property_path(self, path: str) -> str | None:
+        """Resolve a property path to a single predicate URI.
+
+        Tries the entire path as a direct property name first (with spaces normalized
+        to underscores). If that fails, falls back to resolve_path_properties for complex
+        paths containing /, |, ^ operators. Returns None if unresolvable.
+
+        Args:
+            path: Property path string (e.g. 'Discounted Price' or '^belongs_to/p_name').
+
+        Returns:
+            The resolved predicate URI wrapped in angle brackets, or None if unresolvable.
+        """
+        normalized = path.replace(" ", "_")
+        uri = self.get_property_uri(normalized)
+        if uri is not None:
+            return f"<{uri}>"
+        resolved = self.resolve_path_properties(path)
+        if "<xxx>" in resolved:
+            return None
+        return resolved
+
+    def list_property_paths(self) -> list[str]:
+        """List all available property paths (both datatype and object properties).
+
+        Returns:
+            A sorted list of all property names known to the ontology, with underscores
+            replaced by spaces for readability.
+        """
+        paths: set[str] = set()
+        props: dict[str, Property] = {}
+        props.update(self.object_properties)
+        props.update(self.properties)
+        paths.update(p.name.replace("_", " ") for p in props.values())
+        for type_name, type_props in self.datatype_properties.items():
+            paths.update(p.name.replace("_", " ") for p in type_props.values())
+        return sorted(paths)
+
     def format(self) -> str:
         """Get a formatted string representation of the ontology suitable for an LLM prompt.
 
